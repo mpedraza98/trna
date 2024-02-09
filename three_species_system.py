@@ -1,3 +1,4 @@
+# Numerically solve the system for the three state system
 import os
 import pandas as pd
 import numpy as np
@@ -16,8 +17,6 @@ FILENAME = 'plate_counts.csv'
 SAVE_FN = FILENAME.strip().split('.')[0]
 START = 105 # Start of the linear portion of the graph
 #ALPH_DICT = {'A':0, 'B':1, 'C':2, 'D':3, 'E':3, 'F':5, 'G':6, 'H':7}
-delserCGA_path = os.path.join(os.getcwd(), "data", 'fit_gc_delserCGA.csv')
-df_fit_delserCGA = pd.read_csv(delserCGA_path, index_col=0)
 
 
 class EvolutionExperiment():
@@ -39,8 +38,8 @@ class EvolutionExperiment():
         self.number_days = number_days
         self.dilution_percentage = dilution_percentage
         self.day = 0
-        self.daily_fraction = np.zeros((self.number_days, 2))
-        self.history = np.zeros((self.number_days, EvolutionExperiment.time_interval.shape[0], 2))
+        self.daily_fraction = np.zeros((self.number_days, 3))
+        self.history = np.zeros((self.number_days, EvolutionExperiment.time_interval.shape[0], 3))
 
         self.__frac = 0
         self.p0 = 0
@@ -50,11 +49,14 @@ class EvolutionExperiment():
         # Parameters of the model
         # The default for the transition rates is the value from
         # Mutations per generation for wild type (https://doi.org/10.1093/gbe/evu284)
-        self.r_f = model_params.get('r_f',0)
-        self.mu_fc = model_params.get('mu_fc', 4.25e-9)
-        self.r_c = model_params.get('r_c', 0)
-        self.mu_cf = model_params.get('mu_cf', 4.25e-9)
-        self.K = model_params['K']
+        self.r_f = model_params.get('r_f',0)                # Founder's replication rate
+        self.r_d = model_params.get('r_d',0)                # Duplication's replication rate
+        self.r_s = model_params.get('r_s',0)                # SNP mutation replication rate
+        self.mu_fd = model_params.get('mu_fd', 4.25e-9)     # Transition rate F->D
+        self.mu_fs = model_params.get('mu_cf', 4.25e-9)     # Transition rate F->S
+        self.mu_df = model_params.get('mu_fd', 4.25e-9)     # Transition rate D->F
+        self.mu_sf = model_params.get('mu_cf', 4.25e-9)     # Transition rate S->F
+        self.K = model_params['K']                          # Carrying capacity
 
         # Solution of the model
         self.sol = 0
@@ -76,7 +78,9 @@ class EvolutionExperiment():
 
     def model(self, vars, t):
         # Define the system of equations     
-        M = np.array([[self.r_f * (1 - self.mu_fc / np.log(2)), self.mu_cf / np.log(2) * self.r_c], [self.r_f * self.mu_fc / np.log(2), self.r_c * (1 - self.mu_cf / np.log(2))]])
+        M = np.array([[self.r_f * (1 - (self.mu_fd + self.mu_fs)/ np.log(2)), self.mu_df / np.log(2) * self.r_d,  self.mu_sf / np.log(2) * self.r_s], 
+                      [self.r_f * self.mu_fd / np.log(2), self.r_d * (1 - self.mu_df / np.log(2)), 0],
+                      [self.r_f * self.mu_fs / np.log(2), 0, self.r_s * (1 - self.mu_sf / np.log(2))]])
         return M.dot(vars) * (1- vars.sum() / self.K)
 
     def solve(self):
@@ -104,8 +108,11 @@ class EvolutionExperiment():
     def plot_evolution_frac(self, interactive = False):
         days = np.arange(self.number_days)
         fig, ax = plt.subplots(figsize = (10, 8))
+
         founder_line = ax.plot(days, self.daily_fraction[:, 0], label = 'Founder')[0]
-        mutant_line = ax.plot(days, self.daily_fraction[:, 1], label = 'Mutant')[0]
+        duplication_line = ax.plot(days, self.daily_fraction[:, 1], 'x' ,label = 'Duplication')[0]
+        snp_line = ax.plot(days, self.daily_fraction[:, 2], label = 'SNP')[0]
+        #large_line = ax.plot(days, self.daily_fraction[:, 1] + self.daily_fraction[:, 2], label = 'Duplication + SNP')[0]
         ax.set_title(self.name);
         ax.set_ylabel('Population fraction');
         ax.set_xlabel('Day');
@@ -123,17 +130,17 @@ class EvolutionExperiment():
                 valmax=2,
                 valinit=self.r_f,
             )
-            ax_rc = fig.add_axes([0.15, 0.1, 0.65, 0.03])
-            rc_slider = Slider(
-                ax=ax_rc,
-                label=r'$r_M$',
+            ax_rd = fig.add_axes([0.15, 0.1, 0.65, 0.03])
+            rd_slider = Slider(
+                ax=ax_rd,
+                label=r'$r_D$',
                 valmin=0,
                 valmax=2,
                 valinit=self.r_c,
             )
-            ax_mu_fc = fig.add_axes([0.15, 0.15, 0.65, 0.03])
-            mu_fc_slider = Slider(
-                ax=ax_mu_fc,
+            ax_mu_fd = fig.add_axes([0.15, 0.15, 0.65, 0.03])
+            mu_fd_slider = Slider(
+                ax=ax_mu_fd,
                 label=r'$\mu_{F\rightarrow M}$',
                 valmin=4.25e-9,
                 valmax=4.25e-8,
@@ -150,21 +157,21 @@ class EvolutionExperiment():
             )
             # The function to be called anytime a slider's value changes
             def update(val):
-                self.mu_fc = mu_fc_slider.val
+                self.mu_fc = mu_fd_slider.val
                 self.mu_cf = mu_cf_slider.val
                 self.r_f = rf_slider.val
-                self.r_c = rc_slider.val
+                self.r_c = rd_slider.val
                 self.run_experiment()
                 founder_line.set_ydata(self.daily_fraction[:, 0])
-                mutant_line.set_ydata(self.daily_fraction[:, 1])
+                duplication_line.set_ydata(self.daily_fraction[:, 1])
                 fig.canvas.draw_idle()
                 fig.canvas.flush_events()
             
             # The function to be called upon pressing the reset button
             def reset(event):
-                mu_fc_slider.reset()
+                mu_fd_slider.reset()
                 mu_cf_slider.reset()
-                rc_slider.reset()
+                rd_slider.reset()
                 rf_slider.reset()
                 print("RESET")
                 print(self.mu_cf)
@@ -179,14 +186,14 @@ class EvolutionExperiment():
             button = Button(resetax, 'Reset', hovercolor='0.975')
 
             # register the update function with each slider
-            mu_fc_slider.on_changed(update)
+            mu_fd_slider.on_changed(update)
             mu_cf_slider.on_changed(update)
-            rc_slider.on_changed(update)
+            rd_slider.on_changed(update)
             rf_slider.on_changed(update)
             
             button.on_clicked(reset)
         #plt.show()
-        return ax, button
+        return ax
     
     def phase_plot(self, interactive = False):
         cmap = plt.get_cmap('viridis')
@@ -256,8 +263,7 @@ class EvolutionExperiment():
             c0_slider.on_changed(update)
             
             button.on_clicked(reset)
-        #plt.show()
-        return ax
+        plt.show()
 
 
     
@@ -278,30 +284,24 @@ class EvolutionExperiment():
 
 test_mu_cf = np.linspace(4.25e-9, 4.25e-8, 10)
 test_mu_fc = np.linspace(4.25e-9, 4.25e-8, 10)
-test_p0 = np.array([0.001, 0])
-num_days = 10
+test_p0 = np.array([0.001, 0, 0])
+num_days = 40
 # When using delserCGA the replication rate of the founder is found using the growth curve fits
 # Additionally, the replication rate of the mutant is assumed to be the rate of M2lop obtained with the gc fit
 # The number of days in the experiment is 100, for testing let's assume 10
 # M2lop replication rate : 0.05447838370459147
 # delserCGA replication rate : 0.04060341705556068
+# Mutations per generation for wild type (https://doi.org/10.1093/gbe/evu284)
+# 4.25e-9
+# Using the same value for all as a proxy
 
-test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 4.25e-9, 'K' : 21.31}
+test_params = {'r_f' : 0.04060, 'r_d' : 0.05448, 'r_s' : 0.058, 'mu_fd' : 4.25e-9, 'mu_fs' : 4.25e-9, 'mu_df' : 4.25e-9, 'mu_sf' : 4.25e-9, 'K' : 21.31}
 model_experiment = EvolutionExperiment('delserCGA', num_days , test_params)
 model_experiment.p0 = test_p0
 
 model_experiment.run_experiment()
-ax, _ = model_experiment.plot_evolution_frac(interactive = True)
-#ax = model_experiment.phase_plot(interactive= True)
-plt.show()
-# Comparison with the measurements
-df = pd.read_csv('/Users/miguel/Documents/Internship_CENTURI/data/plate_counts.csv')
-df = df.sort_values(['founder', 'replicate']).reset_index(drop=True)
-temp_df = df[df.founder=='delserCGA']
+ax = model_experiment.plot_evolution_frac(interactive = False)
+#model_experiment.phase_plot(interactive= True)
 
-for i in temp_df.replicate.unique()[:1]:
-    temp_df = df[df.replicate == i]
-    ax.plot(temp_df.day.values, temp_df.frac_large, '-x', label = f'Large Day {i}')
-    ax.plot(temp_df.day.values, temp_df.frac_small, '-x', label = f'Small Day {i}')
-ax.legend()
+#ax.plot(np.arange(model_experiment.number_days),model_experiment.daily_fraction[:,1])
 plt.show()
