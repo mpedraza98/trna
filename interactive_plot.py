@@ -213,7 +213,7 @@ class EvolutionExperiment():
             ax_f0 = fig.add_axes([0.15, 0.05, 0.65, 0.03])
             f0_slider = Slider(
                 ax=ax_f0,
-                label=r'$r_F$',
+                label=r'$F_0$',
                 valmin=0,
                 valmax=2,
                 valinit=self.p0[0],
@@ -221,7 +221,7 @@ class EvolutionExperiment():
             ax_c0 = fig.add_axes([0.15, 0.1, 0.65, 0.03])
             c0_slider = Slider(
                 ax=ax_c0,
-                label=r'$r_M$',
+                label=r'$C_0$',
                 valmin=0,
                 valmax=2,
                 valinit=self.p0[1],
@@ -279,15 +279,15 @@ class EvolutionExperiment():
 test_mu_cf = np.linspace(4.25e-9, 4.25e-8, 10)
 test_mu_fc = np.linspace(4.25e-9, 4.25e-8, 10)
 test_p0 = np.array([0.001, 0])
-num_days = 10
+num_days = 100
 # When using delserCGA the replication rate of the founder is found using the growth curve fits
 # Additionally, the replication rate of the mutant is assumed to be the rate of M2lop obtained with the gc fit
 # The number of days in the experiment is 100, for testing let's assume 10
 # M2lop replication rate : 0.05447838370459147
 # delserCGA replication rate : 0.04060341705556068
 
-test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 4.25e-9, 'K' : 21.31}
-model_experiment = EvolutionExperiment('delserCGA', num_days , test_params)
+test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 0.67, 'mu_cf' : 0.17 , 'K' : 1e2}
+model_experiment = EvolutionExperiment('delserCGA', num_days , test_params, dilution_percentage=1e-2)
 model_experiment.p0 = test_p0
 
 model_experiment.run_experiment()
