@@ -121,7 +121,7 @@ class EvolutionExperiment():
             Integrator for the system of equations
             Temporarily stores the solution in the sol variable
         '''
-        print(f"Alpha : {self.alpha}")
+        #print(f"Alpha : {self.alpha}")
         sol = odeint(self.model, y0 = self.__p1, t = self.time_interval)
         self.sol = sol
     
@@ -193,19 +193,19 @@ class EvolutionExperiment():
             ax_alpha = fig.add_axes([0.15, 0.1, 0.65, 0.03])
             alpha_slider = Slider(
                 ax = ax_alpha,
-                label = r'$\alpha = \frac{r_C}{r_F}$',
+                label = r'$r_M$',
                 valmin = 0,
                 valmax = 2,
                 valinit = self.__alpha0,
-                #valinit = 1+1e-3
+                #valinit = 1
             )
             ax_mu_fc = fig.add_axes([0.15, 0.15, 0.65, 0.03])
             mu_fc_slider = Slider(
                 ax = ax_mu_fc,
                 label = r'$\mu_{F\rightarrow M}$',
-                valmin = 1e-9,
-                valmax = 5e-8,
-                valinit = self.mu_fc,
+                valmin = 1e-11,
+                valmax = 1e-6,
+                valinit = 1e-9,
             )
             # Make a vertically oriented slider to control the amplitude
             ax_mu_cf = fig.add_axes([0.15, 0.20, 0.65, 0.03])
