@@ -31,12 +31,12 @@ class EvolutionExperimentTwoStates():
         # Parameters of the model
         # The default for the transition rates is the value from
         # Mutations per generation for wild type (https://doi.org/10.1093/gbe/evu284)
-        self.r_f = model_params.get('r_f',0)                        # Founder's replication rate
-        self.r_c = model_params.get('r_c', 0)                       # Mutant state replication rate
-        self.__mu_fc = model_params.get('mu_fc', 4.25e-9)           # Founder -> Mutant transition rate
-        self.__mu_cf = model_params.get('mu_cf', 4.25e-3)           # Mutant -> Founder transition rate
-        self.K = model_params.get('K', 1e2)                         # Carrying capacity, 10^10 for the experiment
-        self.p0 = np.array([0, 0])                                  # Initial population, in scale of 10^8
+        self.r_f = model_params.get('r_f',0)                                    # Founder's replication rate
+        self.r_c = model_params.get('r_c', 0)                                   # Mutant state replication rate
+        self.__mu_fc = model_params.get('mu_fc', 4.25e-9) / np.log(2)           # Founder -> Mutant transition rate
+        self.__mu_cf = model_params.get('mu_cf', 4.25e-3) / np.log(2)           # Mutant -> Founder transition rate
+        self.K = model_params.get('K', 1e2)                                     # Carrying capacity, 10^10 for the experiment
+        self.p0 = np.array([0, 0])                                              # Initial population, in scale of 10^8
         self.strain_name = strain_name
         self.number_days = number_days
         self.dilution_percentage = dilution_percentage
@@ -189,7 +189,7 @@ class EvolutionExperimentTwoStates():
         mutant_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1], '--')[0]
         ax.set_title(self.strain_name);
         ax.set_ylabel('Population fraction');
-        #ax.set_xticks(days, np.arange(self.number_days))
+        ax.set_xticks(days[::5], np.arange(self.number_days, step = 5))
         ax.set_xlabel('Day');
         ax.legend();
 
@@ -360,4 +360,275 @@ class EvolutionExperimentTwoStates():
                 ".format(self.strain_name, self.r_f, self.mu_fc, self.r_c, self.mu_cf, self.K)
 
 
+
+class EvolutionExperimentThreeStates():
+    '''
+    Takes as input:
+        name: name of the model
+        t: time array
+        params: dictionary with 5 parameters, the replication rates(r_f,r_c), transition rates(mu_fc, mu_cf), carrying capacity(K)
+        p0: inital point
+        p1: initial point for the subsequent runs of the evolution experiment
+    '''
+    # For the equations I will take the time to be in minutes, considering that the replication rates found are in minutes
+    # Since each experiment lasts a day, I will asume the time interval to be 24*60 long
+    
+    def __init__(self, strain_name, number_days, model_params, dilution_percentage = 1e-3) -> None:
+        
+        # Parameters of the model
+        # The default for the transition rates is the value from
+        # Mutations per generation for wild type (https://doi.org/10.1093/gbe/evu284)
+        self.r_f = model_params.get('r_f', 0.04060)                         # Founder's replication rate
+        self.r_d = model_params.get('r_d', 0.05448)                         # Duplication's replication rate
+        self.r_s = model_params.get('r_s', 0.01)                            # SNP mutation replication rate
+        self.__mu_fd = model_params.get('mu_fd', 4.25e-9) / np.log(2)       # Transition rate F->D
+        self.__mu_fs = model_params.get('mu_fs', 4.25e-9) / np.log(2)       # Transition rate F->S
+        self.__mu_df = model_params.get('mu_df', 4.25e-9) / np.log(2)       # Transition rate D->F
+        self.__mu_sf = model_params.get('mu_sf', 4.25e-9) / np.log(2)       # Transition rate S->F
+        self.K = model_params.get('K', 1e2)                                 # Carrying capacity, 10^10 for the experiment
+        self.strain_name = strain_name
+        self.number_days = number_days
+        self.dilution_percentage = dilution_percentage
+        self.day = 0
+        self.days_experiment = 0                                            # Stores the days that have experimental daya for inference tasks
+        self.daily_fraction = np.zeros((self.number_days, 3))
+        self.time_interval = np.arange(0, int(24 * 60 * self.r_f))
+        self.history = np.zeros((self.number_days, self.time_interval.shape[0], 3))
+        self.__frac = 0
+        self.p0 = 0
+        self.__p1 = 0
+        self.__alpha = self.r_d / self.r_f
+        self.__beta = self.r_s / self.r_f
+        
+        
+
+        # Solution of the model
+        self.sol = 0
+    
+    #Private variables from the class
+    @property
+    def frac(self):
+        temp_frac = self.sol / self.sol.sum(axis = 1)[:, None]
+        self.__frac = temp_frac
+        return self.__frac
+    @property
+    def p1(self):
+        return self.__p1
+    
+    @p1.setter
+    def p1(self, value):
+        self.__p1 = value
+    
+    @property
+    def alpha(self):
+        return self.__alpha
+    
+    @alpha.setter
+    def alpha(self, value):
+        if value is not None:
+            self.__alpha = value
+        else:
+            self.__alpha = self.r_d / self.r_f
+    
+    @property
+    def beta(self):
+        return self.__beta
+    
+    @beta.setter
+    def beta(self, value):
+        if value is not None:
+            self.__beta = value
+        else:
+            self.__beta = self.r_s / self.r_f
+    @property
+    def mu_fd(self):
+        return self.__mu_fd
+    
+    @mu_fd.setter
+    def mu_fd(self, value):
+        self.__mu_fd = value / np.log(2)
+    
+    @property
+    def mu_fs(self):
+        return self.__mu_fs
+    
+    @mu_fs.setter
+    def mu_fs(self, value):
+        self.__mu_fs = value / np.log(2)
+    
+    @property
+    def mu_df(self):
+        return self.__mu_df
+    
+    @mu_df.setter
+    def mu_df(self, value):
+        self.__mu_df = value / np.log(2)
+    
+    @property
+    def mu_sf(self):
+        return self.__mu_sf
+    
+    @mu_sf.setter
+    def mu_sf(self, value):
+        self.__mu_sf = value / np.log(2)
+
+    def model(self, vars, t):
+        #Unpack the variables
+        F, D, S = vars
+        # Define the system of equations     
+        M = np.array([self.r_f * (1 - self.mu_fd + self.mu_fs) * F + self.mu_df * self.r_d * D +  self.mu_sf * self.r_s * S,
+                      self.r_f * self.mu_fd * F + self.r_d * (1 - self.mu_df) * D,
+                      self.r_f * self.mu_fs * F + self.r_s * (1 - self.mu_sf) * D])
+        return M * (1- (F + D + S) / self.K)
+    
+    def adim_model(self, vars, t):
+        #Unpack the variables
+        F, D, S = vars
+        # Define the system of equations     
+        M = np.array([(1 - self.mu_fd + self.mu_fs) * F + self.mu_df * self.alpha * D +  self.mu_sf * self.beta * S,
+                      self.mu_fd * F + self.alpha * (1 - self.mu_df) * D,
+                      self.mu_fs * F + self.beta * (1 - self.mu_sf) * D])
+        return M * (1- (F + D + S) / self.K)
+     
+    def solve(self):
+        # Solve the system
+        sol = odeint(self.adim_model, y0 = self.__p1, t = self.time_interval)
+        self.sol = sol
+    
+    def run_experiment(self):
+        #print("Running the evolution experiment")
+        self.__p1 = self.p0.copy()
+        for day in np.arange(self.number_days):
+            self.solve()
+            self.history[day] = self.sol
+            self.__p1 = self.sol[-1] * self.dilution_percentage
+            self.daily_fraction[day] = self.sol[-1] / self.sol[-1].sum()
+            self.day += 1
+
+    def run_experiment_for_inference(self, rng, new_alpha, new_beta, new_mu_fd, new_mu_fs, new_mu_df, new_r_s, size = None):
+        #print("Running the evolution experiment")
+        # Updates the parameters
+        self.alpha = new_alpha
+        self.beta = new_beta
+        self.r_s = new_r_s
+        self.mu_fd = new_mu_fd
+        self.mu_fs = new_mu_fs
+        self.mu_df = new_mu_df
+        self.__p1 = self.p0.copy()
+        for day in np.arange(self.number_days):
+            self.solve()
+            self.history[day] = self.sol
+            self.__p1 = self.sol[-1] * self.dilution_percentage
+            self.daily_fraction[day] = self.sol[-1] / self.sol[-1].sum()
+            self.day += 1
+        
+        #return np.stack((self.daily_fraction[:, 0], self.daily_fraction[:, 1:].sum(axis = 1)), axis = 1)[self.days_experiment, :]
+        return self.daily_fraction[:, 0][self.days_experiment]
+
+    def plot_sol(self, ax):
+        ax.plot(self.time_interval, self.sol, label = ['Founder', 'Duplication', 'SNP'])
+        ax.set_title(self.name)
+        ax.set_ylabel('Population(x10^8)')
+        ax.set_xlabel('Time')
+        ax.legend()
+        return ax
+    
+    def plot_frac(self, ax):
+        temp_frac = self.sol / self.sol.sum(axis = 1)[:, None]
+        ax.plot(self.time, temp_frac, label = ['F', 'C'])
+        ax.set_title(self.name)
+        #ax.set_ylabel('Population(x10^8)')
+        #ax.set_xlabel('Time')
+        ax.legend()
+        return ax
+
+    def plot_evolution_frac(self, interactive = False):
+        days = np.arange(self.number_days)
+        large_frac = self.daily_fraction[:, 1] + self.daily_fraction[:, 2]
+        fig, ax = plt.subplots(figsize = (11, 6))
+
+        founder_line = ax.plot(days, self.daily_fraction[:, 0], label = 'Founder')[0]
+        large_fraction_line = ax.plot(days, large_frac, label = 'Duplication + SNP')
+        duplication_line = ax.plot(days, self.daily_fraction[:, 1], '--' ,label = 'Duplication')[0]
+        snp_line = ax.plot(days, self.daily_fraction[:, 2], '--', label = 'SNP')[0]
+        ax.set_title(self.strain_name);
+        ax.set_ylabel('Population fraction');
+        ax.set_xlabel('Day');
+        ax.legend();
+
+        if interactive:
+            fig.subplots_adjust(left = 0.1, bottom = 0.3)
+
+            # Make a horizontal slider to control the frequency.
+            ax_alpha = fig.add_axes([0.15, 0.1, 0.65, 0.03])
+            alpha_slider = Slider(
+                ax = ax_alpha,
+                label = r'$r_M$',
+                valmin = 0,
+                valmax = 2,
+                valinit = 1,
+                #valinit = 1
+            )
+            ax_mu_fd = fig.add_axes([0.15, 0.15, 0.65, 0.03])
+            mu_fd_slider = Slider(
+                ax = ax_mu_fd,
+                label = r'$\mu_{F\rightarrow D}$',
+                valmin = 1e-11,
+                valmax = 1e-6,
+                valinit = 1e-9,
+            )
+            # Make a vertically oriented slider to control the amplitude
+            ax_mu_df = fig.add_axes([0.15, 0.20, 0.65, 0.03])
+            mu_df_slider = Slider(
+                ax = ax_mu_df,
+                label = r'$\mu_{D\rightarrow F}$',
+                valmin = 4.25e-3,
+                valmax = 4.25e-2,
+                valinit = self.mu_df,
+            )
+            # The function to be called anytime a slider's value changes
+            def update(val):
+                self.mu_fd = mu_fd_slider.val
+                self.mu_df = mu_df_slider.val
+                #self.__alpha = alpha_slider.val
+                self.run_experiment()
+                founder_line.set_ydata(self.daily_fraction[:, 0])
+                duplication_line.set_ydata(self.daily_fraction[:, 1])
+                snp_line.set_ydata(self.daily_fraction[:, 2])
+                large_fraction_line.set_ydata(self.daily_fraction[:, 1] + self.daily_fraction[:, 2])
+                fig.canvas.draw_idle()
+                fig.canvas.flush_events()
+            
+            # The function to be called upon pressing the reset button
+            def reset(event):
+                mu_fd_slider.reset()
+                mu_df_slider.reset()
+                alpha_slider.reset()
+                print("RESET")
+                print(self.mu_cf)
+                print(self.mu_fc)
+                self.run_experiment()
+                fig.canvas.draw_idle()
+                fig.canvas.flush_events()
+                
+
+            # Create a `matplotlib.widgets.Button` to reset the sliders to initial values.
+            resetax = fig.add_axes([0.8, 0.05, 0.1, 0.04])
+            button = Button(resetax, 'Reset', hovercolor='0.975')
+
+            # register the update function with each slider
+            mu_fd_slider.on_changed(update)
+            mu_df_slider.on_changed(update)
+            alpha_slider.on_changed(update)
+            
+            button.on_clicked(reset)
+        #plt.show()
+            
+            return ax, button
+        
+        return ax
+    
+    def __str__(self) -> str:
+        return "name : {} \nparameters (r_f : {}, mu_fc : {}, r_c : {}, mu_cf : {}, K : {}) \n \
+                ".format(self.strain_name, self.r_f, self.mu_fc, self.r_c, self.mu_cf, self.K)
 

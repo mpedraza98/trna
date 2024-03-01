@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm
 from scipy.integrate import odeint
 from matplotlib.widgets import Button, Slider
+from matplotlib.animation import FuncAnimation
 plt.rcParams['text.usetex'] = True
 
 # SET THE WORKING DIRECTORY
@@ -45,12 +46,12 @@ class EvolutionExperiment():
         # Parameters of the model
         # The default for the transition rates is the value from
         # Mutations per generation for wild type (https://doi.org/10.1093/gbe/evu284)
-        self.r_f = model_params.get('r_f',0)
-        self.mu_fc = model_params.get('mu_fc', 4.25e-9)
-        self.r_c = model_params.get('r_c', 0)
-        self.mu_cf = model_params.get('mu_cf', 4.25e-3)
-        self.K = model_params['K']
-        self.p0 = np.array([0, 0])
+        self.r_f = model_params.get('r_f',0)                                    # Founder's replication rate
+        self.r_c = model_params.get('r_c', 0)                                   # Mutant state replication rate
+        self.__mu_fc = model_params.get('mu_fc', 4.25e-9) / np.log(2)           # Founder -> Mutant transition rate
+        self.__mu_cf = model_params.get('mu_cf', 4.25e-3) / np.log(2)           # Mutant -> Founder transition rate
+        self.K = model_params.get('K', 1e2)                                     # Carrying capacity, 10^10 for the experiment
+        self.p0 = np.array([0, 0])                                              # Initial population, in scale of 10^8
         self.strain_name = strain_name
         self.number_days = number_days
         self.dilution_percentage = dilution_percentage
@@ -101,7 +102,22 @@ class EvolutionExperiment():
     def p1(self, value):
         self.__p1 = value
     
+    @property
+    def mu_fc(self):
+        return self.__mu_fc
+    
+    @mu_fc.setter
+    def mu_fc(self, value):
+        self.__mu_fc = value / np.log(2)
 
+    @property
+    def mu_cf(self):
+        return self.__mu_cf
+    
+    @mu_cf.setter
+    def mu_cf(self, value):
+        self.__mu_cf = value / np.log(2)
+       
     def model(self, vars, t = None):
         '''
             Input:
@@ -112,8 +128,8 @@ class EvolutionExperiment():
         '''
         #print(f"Model alpha :{self.alpha}")
         temp_F, temp_C = vars   
-        M = np.array([(1 - self.mu_fc / np.log(2)) * temp_F + self.mu_cf / np.log(2) * self.alpha * temp_C, 
-                      self.mu_fc / np.log(2) * temp_F + self.alpha * (1 - self.mu_cf / np.log(2)) * temp_C])
+        M = np.array([(1 - self.mu_fc ) * temp_F + self.mu_cf * self.alpha * temp_C, 
+                      self.mu_fc * temp_F + self.alpha * (1 - self.mu_cf) * temp_C])
         return M * (1- (temp_F + temp_C) / self.K)
 
     def solve(self):
@@ -137,6 +153,7 @@ class EvolutionExperiment():
             Stores the final values for the fraction of F and C in daily_frac
         '''
         print("Running the evolution experiment")
+        print(self)
         self.__p1 = self.p0.copy()
         for day in np.arange(self.number_days):
             self.solve()
@@ -145,11 +162,11 @@ class EvolutionExperiment():
             self.__p1 = self.sol[-1] * self.dilution_percentage
             self.daily_fraction[day] = self.sol[-1] / self.sol[-1].sum()
             self.day += 1
-
+   
     ## Plotting routines from this point on
     def plot_sol(self, ax):
-        ax.plot(self.time_interval, self.sol, label = ['F', 'C'])
-        ax.set_title(self.name)
+        ax.plot(self.time_interval, self.sol, label = ['F', 'M'])
+        ax.set_title(self.strain_name)
         #ax.set_ylabel('Population(x10^8)')
         #ax.set_xlabel('Time')
         ax.legend()
@@ -172,16 +189,18 @@ class EvolutionExperiment():
         ax.set_ylim([0, 1])
         ax.legend();
 
-    def plot_evolution_frac(self, interactive = False):
+    def plot_evolution_frac(self, interactive = False, history = False):
         timeline = np.arange(self.number_days * 24 * 60)
         days = np.arange(self.number_days) * self.time_interval.shape[0]
         fig, ax = plt.subplots(figsize = (10, 8))
         founder_line = ax.plot(days, self.daily_fraction[:, 0], label = 'Founder')[0]
         mutant_line = ax.plot(days, self.daily_fraction[:, 1], label = 'Mutant')[0]
-        founder_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0], '--')[0]
-        mutant_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1], '--')[0]
+        if history:
+            founder_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0], '--')[0]
+            mutant_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1], '--')[0]
         ax.set_title(self.strain_name);
         ax.set_ylabel('Population fraction');
+        ax.set_xticks(days[::5], np.arange(self.number_days, step = 5))
         #ax.set_xticks(days, np.arange(self.number_days))
         ax.set_xlabel('Day');
         ax.legend();
@@ -224,8 +243,9 @@ class EvolutionExperiment():
                 self.run_experiment()
                 founder_line.set_ydata(self.daily_fraction[:, 0])
                 mutant_line.set_ydata(self.daily_fraction[:, 1])
-                founder_daily.set_ydata(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0])
-                mutant_daily.set_ydata(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1])
+                if history:
+                    founder_daily.set_ydata(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0])
+                    mutant_daily.set_ydata(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1])
                 fig.canvas.draw_idle()
                 fig.canvas.flush_events()
             
@@ -258,6 +278,102 @@ class EvolutionExperiment():
         
         return ax
     
+    def plot_absolute_abundance(self, interactive = False, history = False):
+        total_time = np.arange(self.number_days * self.time_interval.shape[0])
+        days = np.arange(self.number_days) * self.time_interval.shape[0]
+        fig, ax = plt.subplots(figsize = (10, 8))
+        #founder_line = ax.plot(days, self.daily_fraction[:, 0], label = 'Founder')[0]
+        #mutant_line = ax.plot(days, self.daily_fraction[:, 1], label = 'Mutant')[0]
+        ax.plot(total_time, self.history.reshape(-1, self.history.shape[-1])[:,0])
+        ax.plot(total_time, self.history.reshape(-1, self.history.shape[-1])[:,1])
+        #ax.set_yscale('log')
+        #ax.plot(self.history.reshape(-1, self.history.shape[-1])[:,1] / self.history.reshape(-1, self.history.shape[-1])[:,0], '-k')
+        #ax.plot(self.history.reshape(-1, self.history.shape[-1])[:,0] / self.history.reshape(-1, self.history.shape[-1])[:, 1], '-k')
+        ax.axhline(y = self.mu_fc / self.mu_cf, xmin = 0, xmax = total_time[-1])
+        #ax.axhline(y = self.mu_cf / self.mu_fc, xmin = 0, xmax = total_time[-1])
+        if history:
+            founder_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0], '--')[0]
+            mutant_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1], '--')[0]
+        ax.set_title(self.strain_name);
+        ax.set_ylabel('Population fraction');
+        #ax.set_xticks(days[::5], np.arange(self.number_days, step = 5))
+        #ax.set_xticks(days, np.arange(self.number_days))
+        ax.set_xlabel('Day');
+        ax.legend();
+
+        if interactive:
+            fig.subplots_adjust(left = 0.1, bottom = 0.3)
+
+            # Make a horizontal slider to control the frequency.
+            ax_alpha = fig.add_axes([0.15, 0.1, 0.65, 0.03])
+            alpha_slider = Slider(
+                ax = ax_alpha,
+                label = r'$r_M$',
+                valmin = 0,
+                valmax = 2,
+                valinit = self.__alpha0,
+                #valinit = 1
+            )
+            ax_mu_fc = fig.add_axes([0.15, 0.15, 0.65, 0.03])
+            mu_fc_slider = Slider(
+                ax = ax_mu_fc,
+                label = r'$\mu_{F\rightarrow M}$',
+                valmin = 1e-11,
+                valmax = 1e-6,
+                valinit = 1e-9,
+            )
+            # Make a vertically oriented slider to control the amplitude
+            ax_mu_cf = fig.add_axes([0.15, 0.20, 0.65, 0.03])
+            mu_cf_slider = Slider(
+                ax = ax_mu_cf,
+                label = r'$\mu_{M\rightarrow F}$',
+                valmin = 4.25e-3,
+                valmax = 4.25e-2,
+                valinit = self.mu_cf,
+            )
+            # The function to be called anytime a slider's value changes
+            def update(val):
+                self.mu_fc = mu_fc_slider.val
+                self.mu_cf = mu_cf_slider.val
+                self.__alpha = alpha_slider.val
+                self.run_experiment()
+                founder_line.set_ydata(self.daily_fraction[:, 0])
+                mutant_line.set_ydata(self.daily_fraction[:, 1])
+                if history:
+                    founder_daily.set_ydata(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0])
+                    mutant_daily.set_ydata(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1])
+                fig.canvas.draw_idle()
+                fig.canvas.flush_events()
+            
+            # The function to be called upon pressing the reset button
+            def reset(event):
+                mu_fc_slider.reset()
+                mu_cf_slider.reset()
+                alpha_slider.reset()
+                print("RESET")
+                print(self.mu_cf)
+                print(self.mu_fc)
+                self.run_experiment()
+                fig.canvas.draw_idle()
+                fig.canvas.flush_events()
+                
+
+            # Create a `matplotlib.widgets.Button` to reset the sliders to initial values.
+            resetax = fig.add_axes([0.8, 0.05, 0.1, 0.04])
+            button = Button(resetax, 'Reset', hovercolor='0.975')
+
+            # register the update function with each slider
+            mu_fc_slider.on_changed(update)
+            mu_cf_slider.on_changed(update)
+            alpha_slider.on_changed(update)
+            
+            button.on_clicked(reset)
+        #plt.show()
+            
+            return ax, button
+        
+        return ax
+
     def phase_plot(self, interactive = False):
         cmap = plt.get_cmap('viridis')
         fig, ax = plt.subplots(figsize = (10, 6), dpi = 150)
@@ -332,8 +448,8 @@ class EvolutionExperiment():
         #plt.show()
         return ax
 
-    def vector_field_plot(self, ax = None):
-            interval = np.linspace(0, 30, 40)
+    def vector_field_plot(self, ax = None, animate = False):
+            interval = np.linspace(0, 100, 35)
             F, C = np.meshgrid(interval, interval)
 
             DF, DC = self.model([F, C])
@@ -342,19 +458,51 @@ class EvolutionExperiment():
             DF /= N
             DC /= N
             if ax is None:
-                fig, ax = plt.subplots(figsize=(10,6))
-            ax.quiver(F, C, DF, DC, headwidth = 2)
-            ax.plot(interval, self.K - interval, 'r')
-            ax.set_ylim(ymin = 0.5)
+                fig, ax = plt.subplots(figsize=(10,6), dpi = 150)
+            ax.quiver(F, C, DF, DC, headwidth = 1.7, headlength = 4, alpha = 0.4)
+            ax.plot(interval, self.K - interval, "r", label = r'$F = K - M$')
+            ax.plot(self.p0[0], self.p0[1], 'rx')
+            ax.set_xlabel(r'Founder Population ($\times 10^8$)')
+            ax.set_ylabel(r'Mutant Population ($\times 10^8$)')
+            #ax.set_ylim(ymin = 0.5)
+            
+            cmap = plt.get_cmap('viridis')
+            #fig, ax = plt.subplots(figsize = (10, 6), dpi = 150)            
+            for i in np.arange(self.number_days):
+                temp_coords = self.history[i]
+                temp_coords = np.append(temp_coords, np.array([temp_coords[-1] * self.dilution_percentage]), axis = 0)
+                ax.plot(temp_coords[:,0], temp_coords[:,1], alpha = 0.5, c = cmap(i/self.number_days))[0]
+
+            #ax.set_yscale('log');
+            #ax.set_xscale('log');
+            ax.legend();
+            fig.colorbar(matplotlib.cm.ScalarMappable(cmap = cmap, norm = matplotlib.colors.Normalize(vmin = 1, vmax = self.number_days)), ax= ax, ticks = np.arange(1, self.number_days+1, self.number_days // 5), label = 'Days')
+
+            if animate:
+                temp_history = self.history.reshape(-1, 2)
+                line, = ax.plot(temp_history[0,0], temp_history[0,1], 'C1', alpha = 0.5)
+                dot, = ax.plot(temp_history[0,0], temp_history[0,1], 'ro', alpha = 0.5)
+
+                def animation_function(i):
+                    #print(i)
+                    ax.set_title(f'Day {i // self.time_interval[-1]}')
+                    dot.set_xdata(temp_history[i, 0])
+                    dot.set_ydata(temp_history[i, 1])
+                    line.set_xdata(temp_history[:i, 0])
+                    line.set_ydata(temp_history[:i, 1])
+                    return line, 
+                animation = FuncAnimation(fig, func = animation_function, frames = np.arange(0,temp_history.shape[0]), interval = 10)
+                #animation.save(CWD + '/plots/phase_space_trajectory.gif')
+
             plt.show()
 
     def __str__(self) -> str:
-        return "strain_name : {} \nparameters (r_f : {}, mu_fc : {}, r_c : {}, mu_cf : {}, K : {}) \n \
-                ".format(self.strain_name, self.r_f, self.mu_fc, self.r_c, self.mu_cf, self.K)
+        return "strain_name : {} \nparameters (r_f : {}, mu_fc : {}, r_c : {}, mu_cf : {}, K : {}, initial alpha : {}, alpha : {}) \n \
+                ".format(self.strain_name, self.r_f, self.mu_fc, self.r_c, self.mu_cf, self.K, self.__alpha0, self.alpha)
 
 
-test_p0 = np.array([0.001, 0])
-num_days = 100
+test_p0 = np.array([1, 0])
+num_days = 101
 # When using delserCGA the replication rate of the founder is found using the growth curve fits
 # Additionally, the replication rate of the mutant is assumed to be the rate of M2lop obtained with the gc fit
 # The number of days in the experiment is 100, for testing let's assume 10
@@ -367,12 +515,13 @@ num_days = 100
 #   Bottleneck size (Dilution percentage): 1%
 
 
-test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 4.25e-9, 'mu_cf' : 0.017, 'K' : 100}
+test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 0.0039e-06, 'mu_cf' : 1.26610510e-03, 'K' : 100}
+#test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 1.36610510e-3, 'mu_cf' : 1.26610510e-01, 'K' : 100}
 model_experiment = EvolutionExperiment('delserCGA', num_days , test_params, dilution_percentage = 0.01)
 model_experiment.p0 = test_p0
 model_experiment.p1 = test_p0
+#model_experiment.alpha = 1
 
-print(model_experiment.model(test_p0, 1))
 '''
 model_experiment.vector_field_plot()
 
@@ -397,24 +546,56 @@ plt.legend()
 
 plt.show()
 '''
-
 model_experiment.run_experiment()
-#ax = model_experiment.phase_plot(interactive= True)
+#model_experiment.vector_field_plot(animate=False)
+'''
+with open('sol.npy', 'wb') as f:
+    np.save(f, model_experiment.history)
+model_experiment.plot_absolute_abundance()
+'''
+#ax = model_experiment.phase_plot(interactive= False)
 #plt.show()
-ax = model_experiment.plot_evolution_frac(interactive = True)[0]
+ax = model_experiment.plot_evolution_frac(interactive = False)
+#ax = model_experiment.plot_evolution_frac(interactive = True)[0]
+#ax.set_xticks([],[])
+#ax.set_ylim(ymin = -0.05, ymax = 1.05)
+#plt.savefig(CWD + '/plots/two_state_big_mu_mf.png', dpi = 300)
 #model_experiment.plot_frac()
 #model_experiment.bar_plot_frac()
 #plt.show()
 
+'''
+test_ndays = 100
+model_experiment.K = np.inf
+model_experiment.p1 = test_p0
+print(model_experiment.time_interval.shape)
+model_experiment.time_interval = np.arange(0, test_ndays*int(24 * 60 * model_experiment.r_f))
+print(model_experiment.time_interval.shape)
+model_experiment.solve()
+print(model_experiment.sol.shape)
+fig, ax = plt.subplots(figsize = (10, 6))
+#model_experiment.plot_sol(ax)
+temp_fraction = model_experiment.sol / model_experiment.sol.sum(axis = 1)[:, None]
+print("__________________________")
+print(temp_fraction.shape)
+print(temp_fraction[-10])
+ax.plot(temp_fraction[:,0], label = 'F')
+ax.plot(temp_fraction[:,1], label = 'M')
+#ax.set_xticks(np.arange(test_ndays) * model_experiment.time_interval.shape[0], np.arange(0,test_ndays))
+ax.set_xlabel('Days')
+ax.legend();
+plt.show()
+'''
 
+
+print(f'alpha : {model_experiment.alpha}')
 # Comparison with the measurements
 df = pd.read_csv('/Users/miguel/Documents/Internship_CENTURI/data/plate_counts.csv')
 df = df.sort_values(['founder', 'replicate']).reset_index(drop=True)
 temp_df = df[df.founder=='delserCGA']
-
 for i in temp_df.replicate.unique()[:1]:
     temp_df = temp_df[temp_df.replicate == i]
-    ax.plot(temp_df.day.values * model_experiment.time_interval.shape[0], temp_df.frac_large, '-x', label = f'Large Day {i}')
-    ax.plot(temp_df.day.values * model_experiment.time_interval.shape[0], temp_df.frac_small, '-x', label = f'Small Day {i}')
+    ax.plot(temp_df.day.values * model_experiment.time_interval.shape[0], temp_df.frac_large, 'x', label = f'Replicate {i} Large')
+    ax.plot(temp_df.day.values * model_experiment.time_interval.shape[0], temp_df.frac_small, 'x', label = f'Replicate{i} Small')
 ax.legend()
 plt.show()
