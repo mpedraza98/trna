@@ -1,3 +1,12 @@
+'''
+This file is a work in progress to create a central class that solves the different variants of the model
+and also includes different plots that are often used
+
+I created it after working for a while on the individual equations and I haven't finish the transition of all
+the required functions
+'''
+
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
