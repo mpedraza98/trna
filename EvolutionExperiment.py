@@ -20,8 +20,8 @@ plt.rcParams['text.usetex'] = True
 class EvolutionExperimentTwoStates():
     '''
     The evolution experiment responds to the dynamic given by the equation
-    dF/dt = (1 - mu_fc) F + a * mu_cf * C
-    dC/dt = mu_fc * F + a (1 - mu_cf) * C
+    dF/dt = (1 - mu_fm) F + a * mu_mf * C
+    dC/dt = mu_fm * F + a (1 - mu_mf) * C
 
     where t is the time i units of founder replication time
 
@@ -40,12 +40,12 @@ class EvolutionExperimentTwoStates():
         # Parameters of the model
         # The default for the transition rates is the value from
         # Mutations per generation for wild type (https://doi.org/10.1093/gbe/evu284)
-        self.r_f = model_params.get('r_f',0)                                    # Founder's replication rate
-        self.r_c = model_params.get('r_c', 0)                                   # Mutant state replication rate
+        self.r_f = model_params.get('r_f', 0.04060)                             # Founder's replication rate
+        self.r_c = model_params.get('r_c', 0.05448)                             # Mutant state replication rate
         self.__mu_fc = model_params.get('mu_fc', 4.25e-9) / np.log(2)           # Founder -> Mutant transition rate
         self.__mu_cf = model_params.get('mu_cf', 4.25e-3) / np.log(2)           # Mutant -> Founder transition rate
         self.K = model_params.get('K', 1e2)                                     # Carrying capacity, 10^10 for the experiment
-        self.p0 = np.array([0, 0])                                              # Initial population, in scale of 10^8
+        self.p0 = np.array([1, 0])                                              # Initial population, in scale of 10^8
         self.strain_name = strain_name
         self.number_days = number_days
         self.dilution_percentage = dilution_percentage
@@ -89,6 +89,13 @@ class EvolutionExperimentTwoStates():
             self.__alpha = self.r_c / self.r_f
     
     @property
+    def p1(self):
+        return self.__p1
+    
+    @p1.setter
+    def p1(self, value):
+        self.__p1 = value
+    @property
     def mu_fc(self):
         return self.__mu_fc
     
@@ -115,9 +122,9 @@ class EvolutionExperimentTwoStates():
         '''
         #print(f"Model alpha :{self.alpha}")
         temp_F, temp_C = vars   
-        M = np.array([(1 - self.mu_fc / np.log(2)) * temp_F + self.mu_cf / np.log(2) * self.alpha * temp_C, 
-                      self.mu_fc / np.log(2) * temp_F + self.alpha * (1 - self.mu_cf / np.log(2)) * temp_C])
-        return M * (1- (temp_F + temp_C) / self.K)
+        M = np.array([(1 - self.mu_fc) * temp_F + self.mu_cf * self.alpha * temp_C, 
+                      self.mu_fc * temp_F + self.alpha * (1 - self.mu_cf) * temp_C])
+        return M * (1 - (temp_F + temp_C) / self.K)
 
     def solve(self):
         '''
@@ -125,7 +132,7 @@ class EvolutionExperimentTwoStates():
             Temporarily stores the solution in the sol variable
         '''
         #print(f"Alpha : {self.alpha}")
-        sol = odeint(self.model, y0 = self.__p1, t = self.time_interval)
+        sol = odeint(self.model, y0 = self.p1, t = self.time_interval)
         self.sol = sol
     
     def run_experiment(self):
@@ -140,12 +147,12 @@ class EvolutionExperimentTwoStates():
             Stores the final values for the fraction of F and C in daily_frac
         '''
         print("Running the evolution experiment")
-        self.__p1 = self.p0.copy()
+        self.p1 = self.p0.copy()
         for day in np.arange(self.number_days):
             self.solve()
             self.history[day] = self.sol
             self.history_fraction[day] = self.sol / self.sol.sum(axis = 1)[:, None]
-            self.__p1 = self.sol[-1] * self.dilution_percentage
+            self.p1 = self.sol[-1] * self.dilution_percentage
             self.daily_fraction[day] = self.sol[-1] / self.sol[-1].sum()
             self.day += 1
     
@@ -156,11 +163,29 @@ class EvolutionExperimentTwoStates():
         self.alpha = new_alpha
         self.mu_cf = new_mu_cf
         self.mu_fc = new_mu_fc
-        self.__p1 = self.p0.copy()
+        self.p1 = self.p0.copy()
         for day in np.arange(self.number_days):
             self.solve()
-            self.__p1 = self.sol[-1] * self.dilution_percentage
+            self.p1 = self.sol[-1] * self.dilution_percentage
             self.daily_fraction[day] = self.sol[-1] / self.sol[-1].sum()
+
+    ## Pymc requires to pass more arguments to the function
+    ## Defining a copy of the experiment compatible with PyMc
+    def run_experiment_for_abc(self, rng, new_alpha, new_mu_fc, new_mu_cf, size = None):
+        '''
+            Runs the experiment for inference of the parameters alpha, mu_fc, mu_cf
+        '''
+        self.alpha = new_alpha
+        self.mu_cf = new_mu_cf
+        self.mu_fc = new_mu_fc
+        self.p1 = self.p0.copy()
+        for day in np.arange(self.number_days):
+            self.solve()
+            self.p1 = self.sol[-1] * self.dilution_percentage
+            self.daily_fraction[day] = self.sol[-1] / self.sol[-1].sum()
+        
+        return self.daily_fraction[:, 0][self.days_experiment]
+
 
     ## Plotting routines from this point on
     def plot_sol(self, ax):
@@ -194,8 +219,8 @@ class EvolutionExperimentTwoStates():
         fig, ax = plt.subplots(figsize = (10, 8))
         founder_line = ax.plot(days, self.daily_fraction[:, 0], label = 'Founder')[0]
         mutant_line = ax.plot(days, self.daily_fraction[:, 1], label = 'Mutant')[0]
-        founder_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0], '--')[0]
-        mutant_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1], '--')[0]
+        #founder_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 0], '--')[0]
+        #mutant_daily = ax.plot(self.history_fraction.reshape((self.time_interval.shape[0] * self.number_days, 2))[:, 1], '--')[0]
         ax.set_title(self.strain_name);
         ax.set_ylabel('Population fraction');
         ax.set_xticks(days[::5], np.arange(self.number_days, step = 5))

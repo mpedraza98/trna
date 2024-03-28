@@ -236,7 +236,7 @@ class EvolutionExperiment():
                 ax = ax_alpha,
                 label = r'$r_M$',
                 valmin = 0,
-                valmax = 2,
+                valmax = 3,
                 valinit = self.__alpha0,
                 #valinit = 1
             )
@@ -245,18 +245,18 @@ class EvolutionExperiment():
             mu_fc_slider = Slider(
                 ax = ax_mu_fc,
                 label = r'$\mu_{F\rightarrow M}$',
-                valmin = 1e-11,
+                valmin = 1e-8,
                 valmax = 1e-6,
-                valinit = 1e-9,
+                valinit = 1e-7,
             )
             # Make a horizontal slider to control the value of mu_cf.
             ax_mu_cf = fig.add_axes([0.15, 0.20, 0.65, 0.03])
             mu_cf_slider = Slider(
                 ax = ax_mu_cf,
                 label = r'$\mu_{M\rightarrow F}$',
-                valmin = 4.25e-3,
-                valmax = 4.25e-2,
-                valinit = self.mu_cf,
+                valmin = 1e-3,
+                valmax = 2e-1,
+                valinit = 1e-2,
             )
 
             # The function to be called anytime a slider's value changes
@@ -335,7 +335,7 @@ class EvolutionExperiment():
                 ax = ax_alpha,
                 label = r'$r_M$',
                 valmin = 0,
-                valmax = 2,
+                valmax = 3,
                 valinit = self.__alpha0,
                 #valinit = 1
             )
@@ -562,9 +562,9 @@ if __name__ == '__main__':
     #   Bottleneck size (Dilution percentage): 1%
 
     test_p0 = np.array([1, 0])
-    num_days = 101
-    test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 0.0039e-06, 'mu_cf' : 1.26610510e-03, 'K' : 100}
-    #test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 1.36610510e-3, 'mu_cf' : 1.26610510e-01, 'K' : 100}
+    num_days = 250
+    #test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 4.11140815e-07, 'mu_cf' : 1.36180515e-02, 'K' : 100}
+    test_params = {'r_f' : 0.04060, 'r_c' : 0.05448, 'mu_fc' : 4.25e-9, 'mu_cf' : 4.25e-3, 'K' : 1e2}
     model_experiment = EvolutionExperiment('delserCGA', num_days , test_params, dilution_percentage = 0.01)
     model_experiment.p0 = test_p0
     model_experiment.p1 = test_p0
@@ -581,14 +581,14 @@ if __name__ == '__main__':
     '''
     #ax = model_experiment.phase_plot(interactive= False)
     #plt.show()
-    #ax = model_experiment.plot_evolution_frac(interactive = False)
-    ax = model_experiment.plot_evolution_frac(interactive = True)[0]
-    #ax.set_xticks([],[])
+    ax = model_experiment.plot_evolution_frac(interactive = False)
+    #ax = model_experiment.plot_evolution_frac(interactive = True)[0]
+    ax.set_xticks([],[])
     #ax.set_ylim(ymin = -0.05, ymax = 1.05)
     #plt.savefig(CWD + '/plots/two_state_big_mu_mf.png', dpi = 300)
     #model_experiment.plot_frac()
     #model_experiment.bar_plot_frac()
-    #plt.show()
+    plt.show()
 
     
     # In this part of the code I was testing the idea that in the limit of an infinite carrying capacity the experiments should 
@@ -643,7 +643,7 @@ if __name__ == '__main__':
     plt.show()
     '''
     
-
+'''
     # Comparison with the measurements
     # Load and plot the experimental data
     # Requires an existing axis object
@@ -656,3 +656,4 @@ if __name__ == '__main__':
         ax.plot(temp_df.day.values * model_experiment.time_interval.shape[0], temp_df.frac_small, 'x', label = f'Replicate{i} Small')
     ax.legend()
     plt.show()
+'''
